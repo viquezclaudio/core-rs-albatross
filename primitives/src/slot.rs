@@ -81,7 +81,7 @@ pub enum SlotIndex {
 ///
 /// * We could include the slot number in here
 ///
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Slot {
     pub validator_slot: ValidatorSlotBand,
     pub stake_slot: StakeSlotBand,

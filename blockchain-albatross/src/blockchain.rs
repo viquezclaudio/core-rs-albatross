@@ -94,11 +94,15 @@ enum ChainOrdering {
     Unknown,
 }
 
+pub enum ForkEvent {
+    Detected(ForkProof)
+}
 pub struct Blockchain {
     pub(crate) env: Environment,
     pub network_id: NetworkId,
     // TODO network_time: Arc<NetworkTime>,
     pub notifier: RwLock<Notifier<'static, BlockchainEvent>>,
+    pub fork_notifier: RwLock<Notifier<'static, ForkEvent>>,
     pub chain_store: Arc<ChainStore>,
     pub(crate) state: RwLock<BlockchainState>,
     push_lock: Mutex<()>,
@@ -234,6 +238,7 @@ impl Blockchain {
             network_id,
             //network_time,
             notifier: RwLock::new(Notifier::new()),
+            fork_notifier: RwLock::new(Notifier::new()),
             chain_store,
             state: RwLock::new(BlockchainState {
                 accounts,
@@ -289,6 +294,7 @@ impl Blockchain {
             network_id,
             //network_time,
             notifier: RwLock::new(Notifier::new()),
+            fork_notifier: RwLock::new(Notifier::new()),
             chain_store,
             state: RwLock::new(BlockchainState {
                 accounts,
@@ -590,6 +596,73 @@ impl Blockchain {
                 debug!("Block hash: {}", micro_block.header.hash::<Blake2bHash>());
                 debug!("Intended slot owner: {:?}", intended_slot_owner.compress());
                 return Err(PushError::InvalidBlock(BlockError::InvalidJustification));
+            }
+            
+            //A fork proof doesn't apply to the genesis block
+            if block.block_number() != 0
+            {
+                let count = block.block_number() - policy::macro_block_before(block.block_number()) ;
+                let microblocks: Vec<Block> = self.chain_store.get_blocks_backward(block.parent_hash(), count - 1, false, Some(&read_txn));
+
+                for microblock in microblocks.iter(){
+
+                    //Cannot fork macroblocks
+                    if let Block::Macro(_) = microblock {
+                        continue;
+                    }
+
+                    let (microblock_slot, _) = self.get_slot_at(microblock.block_number(), microblock.view_number(),Some(&read_txn) ).unwrap();
+
+                    // Check if  we have two blocks in the same slot
+                    // This is sufficient for the fork proof, since we already verified
+                    // The validator for the current slot, i.e: We cannot have two different validator for the same slot
+                    if  slot == microblock_slot  {
+                        // Here we are asumming that at this point we already verified that the validator's signature is valid                  
+                        let header = block.header();
+                        let microheader1;
+                
+                        if let BlockHeader::Micro(microheader) = header{ 
+                            microheader1  = microheader; 
+                        }
+                        else {
+                            unreachable!();
+                        };                
+
+                        let header = microblock.header();
+                        let microheader2;
+                
+                        if let BlockHeader::Micro(microheader) = header{ 
+                            microheader2 = microheader; 
+                        }
+                        else {
+                            unreachable!();
+                        };     
+
+                        let justification1;
+                        if let Block::Micro(ref micro_block) = block {
+                            justification1 = micro_block.justification.signature;
+                        }                
+                        else {
+                            unreachable!();
+                        };
+
+                        let justification2;
+                        if let Block::Micro(ref micro_block) = microblock {
+                            justification2 = micro_block.justification.signature;
+                        }
+                        else {
+                            unreachable!();
+                        };
+                
+                        let proof = ForkProof{
+                                                header1:         microheader1.clone(), 
+                                                header2:         microheader2.clone(),
+                                                justification1:  justification1,
+                                                justification2:  justification2};
+                        self.fork_notifier.read().notify(ForkEvent::Detected(proof));
+                    }
+                }
+
             }
 
             // Validate slash inherents
