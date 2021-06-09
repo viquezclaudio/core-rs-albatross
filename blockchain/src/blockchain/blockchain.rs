@@ -4,17 +4,22 @@ use parking_lot::{Mutex, RwLock};
 
 use nimiq_account::Account;
 use nimiq_accounts::Accounts;
-use nimiq_block::Block;
+use nimiq_block::{Block, MacroBlock, MacroBody,MacroHeader};
+use nimiq_bls::CompressedPublicKey;
+use beserial::Deserialize;
 use nimiq_database::{Environment, WriteTransaction};
 use nimiq_genesis::NetworkInfo;
-use nimiq_hash::Blake2bHash;
+use nimiq_hash::{Hash,Blake2bHash,BLAKE2B_LENGTH};
 use nimiq_keys::Address;
 use nimiq_primitives::coin::Coin;
 use nimiq_primitives::networks::NetworkId;
 use nimiq_primitives::policy;
-use nimiq_primitives::slots::Validators;
+use nimiq_primitives::slots::{Validator,Validators};
+use nimiq_primitives::account::ValidatorId;
 use nimiq_utils::observer::Notifier;
 use nimiq_utils::time::OffsetTime;
+use nimiq_vrf::VrfSeed;
+use std::str::FromStr;
 
 use crate::blockchain_state::BlockchainState;
 use crate::chain_info::ChainInfo;
@@ -61,10 +66,57 @@ impl Blockchain {
     pub fn new(env: Environment, network_id: NetworkId) -> Result<Self, BlockchainError> {
         // TODO `time` should be passed by the caller.
         let time = Arc::new(OffsetTime::new());
-        let network_info = NetworkInfo::from_network_id(network_id);
-        let genesis_block = network_info.genesis_block::<Block>();
-        let genesis_accounts = network_info.genesis_accounts();
-        Self::with_genesis(env, time, network_id, genesis_block, genesis_accounts)
+        let _network_info = NetworkInfo::from_network_id(network_id);
+
+        //let genesis_block = network_info.genesis_block::<Block>();
+        //let genesis_accounts = network_info.genesis_accounts();
+
+        // Root block validators info
+        const NIMIQ_VALIDATOR_ID: &str = "5555555555555555555555555555555555555555";
+        const NIMIQ_VALIDATOR_KEY: &str = 
+            "003d4e4eb0fa2fee42501368dc41115f64741e9d9496bbc2fe4cfd407f10272eef87b839d6e25b0eb7338427d895e4209190b6c5aa580f134693623a30ebafdaf95a268b3b84a840fc45d06283d71fe4faa2c7d08cd431bbda165c53a50453015a49ca120626991ff9558be65a7958158387829d6e56e2861e80b85e8c795d93f907afb19e6e2e5aaed9a3158eac5a035189986ff5803dd18fa02bdf5535e5495ed96990665ec165b3ba86fc1a7f7dabeb0510e1823813bf5ab1a01b4fff00bcd0373bc265efa135f8755ebae72b645a890d27ce8af31417347bc3a1d9cf09db339b68d1c9a50bb9c00faeedbefe9bab5a63b580e5f79c4a30dc1bdacccec0fc6a08e0853518e88557001a612d4c30d2fbc2a126a066a94f299ac5ce61";
+ 
+        let public_key = CompressedPublicKey::from_str(NIMIQ_VALIDATOR_KEY).unwrap();
+
+        let validator_id =
+        ValidatorId::deserialize_from_vec(&hex::decode(NIMIQ_VALIDATOR_ID).unwrap()).unwrap();
+        
+        let mut validators = Vec::new();
+
+        validators.push(Validator::new(validator_id.clone(),
+                             public_key,
+                             (0,0) ) );
+
+         // Root block Body
+        let mut body = MacroBody::new();
+        body.validators = Some(Validators::new(validators));
+        let body_root = body.hash::<Blake2bHash>();
+
+
+        // Root block state
+        let header = MacroHeader {
+            version: 1,
+            block_number: 0,
+            view_number: 0,
+            timestamp: 0,
+            parent_hash: [0u8; BLAKE2B_LENGTH].into(),
+            parent_election_hash: [0u8; BLAKE2B_LENGTH].into(),
+            seed: VrfSeed::default(),
+            extra_data: vec![],
+            state_root: [0u8; BLAKE2B_LENGTH].into(),
+            body_root,   
+            history_root: [0u8; BLAKE2B_LENGTH].into(),
+        };
+        
+        // Create the new root block
+        let root_block = Block::Macro(MacroBlock {
+            header,
+            justification: None,
+            body: Some(body),
+        });
+
+
+        Self::with_genesis(env, time, network_id, root_block, Vec::new())
     }
 
     /// Creates a new blockchain with the given genesis block.
