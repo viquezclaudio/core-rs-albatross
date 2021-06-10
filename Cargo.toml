@@ -12,6 +12,7 @@ members = [
   "collections",
   "consensus",
   "database",
+  "db-import",
   "genesis",
   "handel",
   "hash",

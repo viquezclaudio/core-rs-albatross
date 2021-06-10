@@ -109,7 +109,7 @@ where
 
 // Blake2b
 
-const BLAKE2B_LENGTH: usize = 32;
+pub const BLAKE2B_LENGTH: usize = 32;
 create_typed_array!(Blake2bHash, u8, BLAKE2B_LENGTH);
 add_hex_io_fns_typed_arr!(Blake2bHash, BLAKE2B_LENGTH);
 

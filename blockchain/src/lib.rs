@@ -6,6 +6,7 @@ extern crate log;
 pub use abstract_blockchain::AbstractBlockchain;
 pub use blockchain::blockchain::Blockchain;
 pub use chain_info::ChainInfo;
+pub use chain_store::ChainStore;
 pub use chain_ordering::ChainOrdering;
 pub use error::*;
 pub use history_store::*;
